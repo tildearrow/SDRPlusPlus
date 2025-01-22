@@ -8,6 +8,7 @@
 #include <dsp/audio/volume.h>
 #include <dsp/convert/stereo_to_mono.h>
 #include <thread>
+#include <atomic>
 #include <ctime>
 #include <gui/gui.h>
 #include <filesystem>
@@ -26,6 +27,9 @@
 #define CONCAT(a, b) ((std::string(a) + b).c_str())
 
 #define SILENCE_LVL 10e-6
+
+#define WRITE_QUEUE_SIZE 2097152
+#define WRITE_QUEUE_MASK (WRITE_QUEUE_SIZE-1)
 
 SDRPP_MOD_INFO{
     /* Name:            */ "recorder",
@@ -105,6 +109,9 @@ public:
 
         gui::menu.registerEntry(name, menuHandler, this);
         core::modComManager.registerInterface("recorder", name, moduleInterfaceHandler, this);
+
+        // Init write queue
+        writeQueue = new float[WRITE_QUEUE_SIZE];
     }
 
     ~RecorderModule() {
@@ -116,6 +123,7 @@ public:
         sigpath::sinkManager.onStreamRegistered.unbindHandler(&onStreamRegisteredHandler);
         sigpath::sinkManager.onStreamUnregister.unbindHandler(&onStreamUnregisterHandler);
         meter.stop();
+        delete[] writeQueue;
     }
 
     void postInit() {
@@ -196,6 +204,12 @@ public:
             sigpath::iqFrontEnd.bindIQStream(basebandStream);
         }
 
+        // Create write thread
+        stopWriteThread=false;
+        writeThread = new std::thread(RecorderModule::runWriteThread,this);
+        queuePosRead = 0;
+        queuePosWrite = 0;
+
         recording = true;
     }
 
@@ -217,6 +231,13 @@ public:
             basebandSink.stop();
             delete basebandStream;
         }
+
+        // Stop the write thread
+        stopWriteThread=true;
+        writeThread->join();
+        delete writeThread;
+        queuePosRead = 0;
+        queuePosWrite = 0;
 
         // Close file
         writer.close();
@@ -504,9 +525,45 @@ private:
         return std::regex_replace(input, std::regex("//"), "/");
     }
 
+    static void runWriteThread(void* ctx) {
+      RecorderModule* _this = (RecorderModule*)ctx;
+      unsigned char mustHalve=(_this->stereo || _this->recMode==RECORDER_MODE_BASEBAND)?1:0;
+      while (true) {  
+        unsigned int pos=_this->queuePosRead;
+        unsigned int posW=_this->queuePosWrite;
+        if (pos!=posW) {
+          if (pos<posW) {
+            _this->writer.write(&_this->writeQueue[pos],(posW-pos)>>mustHalve);
+            pos=posW;
+          } else {
+            _this->writer.write(&_this->writeQueue[pos],(WRITE_QUEUE_SIZE-pos)>>mustHalve);
+            pos=0;
+          }
+          _this->queuePosRead=pos;
+        } else {
+          if (_this->stopWriteThread) break;
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+      }
+    }
+
+    void queueWrite(float* data, int count) {
+      unsigned int pos=queuePosWrite;
+      unsigned int posR=(queuePosRead-1)&WRITE_QUEUE_MASK;
+      for (int i=0; i<count; i++) {
+        while (pos==posR) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+          posR=(queuePosRead-1)&WRITE_QUEUE_MASK;
+        }
+        writeQueue[pos]=data[i];
+        pos=(pos+1)&WRITE_QUEUE_MASK;
+      }
+      queuePosWrite=pos;
+    }
+
     static void complexHandler(dsp::complex_t* data, int count, void* ctx) {
         RecorderModule* _this = (RecorderModule*)ctx;
-        _this->writer.write((float*)data, count);
+        _this->queueWrite((float*)data, count*2);
     }
 
     static void stereoHandler(dsp::stereo_t* data, int count, void* ctx) {
@@ -522,7 +579,7 @@ private:
             _this->ignoringSilence = (absMax < SILENCE_LVL);
             if (_this->ignoringSilence) { return; }
         }
-        _this->writer.write((float*)data, count);
+        _this->queueWrite((float*)data, count*2);
     }
 
     static void monoHandler(float* data, int count, void* ctx) {
@@ -536,7 +593,7 @@ private:
             _this->ignoringSilence = (absMax < SILENCE_LVL);
             if (_this->ignoringSilence) { return; }
         }
-        _this->writer.write(data, count);
+        _this->queueWrite(data, count);
     }
 
     static void moduleInterfaceHandler(int code, void* in, void* out, void* ctx) {
@@ -579,6 +636,7 @@ private:
 
     bool recording = false;
     bool ignoringSilence = false;
+    bool stopWriteThread = false;
     wav::Writer writer;
     std::recursive_mutex recMtx;
     dsp::stream<dsp::complex_t>* basebandStream;
@@ -601,6 +659,10 @@ private:
     EventHandler<std::string> onStreamRegisteredHandler;
     EventHandler<std::string> onStreamUnregisterHandler;
 
+    std::thread* writeThread = NULL;
+    std::atomic<unsigned int> queuePosRead = 0;
+    std::atomic<unsigned int> queuePosWrite = 0;
+    float* writeQueue = NULL;
 };
 
 MOD_EXPORT void _INIT_() {

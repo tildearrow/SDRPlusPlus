@@ -47,6 +47,9 @@ namespace demod {
             if (config->conf[name][getName()].contains("stereo")) {
                 _stereo = config->conf[name][getName()]["stereo"];
             }
+            if (config->conf[name][getName()].contains("mtsStereo")) {
+                _mtsStereo = config->conf[name][getName()]["mtsStereo"];
+            }
             if (config->conf[name][getName()].contains("lowPass")) {
                 _lowPass = config->conf[name][getName()]["lowPass"];
             }
@@ -72,7 +75,7 @@ namespace demod {
             }
 
             // Init DSP
-            demod.init(input, bandwidth / 2.0f, getIFSampleRate(), _stereo, _lowPass, _rds);
+            demod.init(input, bandwidth / 2.0f, getIFSampleRate(), _stereo, _lowPass, _rds, _mtsStereo);
             rdsDemod.init(&demod.rdsOut, _rdsInfo);
             hs.init(&rdsDemod.out, rdsHandler, this);
             reshape.init(&rdsDemod.soft, 4096, (1187 / 30) - 4096);
@@ -104,6 +107,12 @@ namespace demod {
                 setStereo(_stereo);
                 _config->acquire();
                 _config->conf[name][getName()]["stereo"] = _stereo;
+                _config->release(true);
+            }
+            if (ImGui::Checkbox(("MTS##_radio_wfm_stereo_mts_" + name).c_str(), &_mtsStereo)) {
+                setMTSStereo(_mtsStereo);
+                _config->acquire();
+                _config->conf[name][getName()]["mtsStereo"] = _mtsStereo;
                 _config->release(true);
             }
             if (ImGui::Checkbox(("Low Pass##_radio_wfm_lowpass_" + name).c_str(), &_lowPass)) {
@@ -257,7 +266,7 @@ namespace demod {
         // ============= INFO =============
 
         const char* getName() { return "WFM"; }
-        double getIFSampleRate() { return 250000.0; }
+        double getIFSampleRate() { return 800000.0; }
         double getAFSampleRate() { return getIFSampleRate(); }
         double getDefaultBandwidth() { return 150000.0; }
         double getMinBandwidth() { return 50000.0; }
@@ -277,6 +286,11 @@ namespace demod {
         void setStereo(bool stereo) {
             _stereo = stereo;
             demod.setStereo(_stereo);
+        }
+
+        void setMTSStereo(bool mtsStereo) {
+            _mtsStereo = mtsStereo;
+            demod.setMTSStereo(_mtsStereo);
         }
 
         void setAdvancedRds(bool enabled) {
@@ -351,6 +365,7 @@ namespace demod {
         ConfigManager* _config = NULL;
 
         bool _stereo = false;
+        bool _mtsStereo = false;
         bool _lowPass = true;
         bool _rds = false;
         bool _rdsInfo = false;

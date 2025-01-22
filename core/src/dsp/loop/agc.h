@@ -8,9 +8,9 @@ namespace dsp::loop {
     public:
         AGC() {}
 
-        AGC(stream<T>* in, double setPoint, double attack, double decay, double maxGain, double maxOutputAmp, double initGain = 1.0) { init(in, setPoint, attack, decay, maxGain, maxOutputAmp, initGain); }
+        AGC(stream<T>* in, double setPoint, double attack, double decay, double maxGain, double maxOutputAmp, double initGain = 1.0, double bypass = -1.0) { init(in, setPoint, attack, decay, maxGain, maxOutputAmp, initGain, bypass); }
 
-        void init(stream<T>* in, double setPoint, double attack, double decay, double maxGain, double maxOutputAmp, double initGain = 1.0) {
+        void init(stream<T>* in, double setPoint, double attack, double decay, double maxGain, double maxOutputAmp, double initGain = 1.0, double bypass = -1.0) {
             _setPoint = setPoint;
             _attack = attack;
             _invAttack = 1.0f - _attack;
@@ -19,6 +19,7 @@ namespace dsp::loop {
             _maxGain = maxGain;
             _maxOutputAmp = maxOutputAmp;
             _initGain = initGain;
+            _bypass = bypass;
             amp = _setPoint / _initGain;
             base_type::init(in);
         }
@@ -59,6 +60,12 @@ namespace dsp::loop {
             assert(base_type::_block_init);
             std::lock_guard<std::recursive_mutex> lck(base_type::ctrlMtx);
             _initGain = initGain;
+        }
+
+        void setBypass(double bypass) {
+            assert(base_type::_block_init);
+            std::lock_guard<std::recursive_mutex> lck(base_type::ctrlMtx);
+            _bypass = bypass;
         }
 
         void reset() {
@@ -102,6 +109,11 @@ namespace dsp::loop {
                     amp = maxAmp;
                     gain = std::min<float>(_setPoint / amp, _maxGain);
                 }
+
+                // If bypass is positive, use it
+                if (_bypass >= 0.0) {
+                    gain = _bypass;
+                }
                 
                 // Scale output by gain
                 out[i] = in[i] * gain;
@@ -129,6 +141,7 @@ namespace dsp::loop {
         float _maxGain;
         float _maxOutputAmp;
         float _initGain;
+        float _bypass;
 
         float amp = 1.0;
 

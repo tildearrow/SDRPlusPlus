@@ -29,23 +29,23 @@ SDRPP_MOD_INFO{/* Name:            */ "atv_decoder",
                /* Max instances    */ -1
 };
 
-#define SAMPLE_RATE (625.0f * 720.0f * 25.0f)
+#define SAMPLE_RATE (525.0f * 720.0f * 29.97f)
 
 class ATVDecoderModule : public ModuleManager::Instance {
   public:
-    ATVDecoderModule(std::string name) : img(720, 625) {
+    ATVDecoderModule(std::string name) : img(720, 525) {
         this->name = name;
 
-        vfo = sigpath::vfoManager.createVFO(name, ImGui::WaterfallVFO::REF_CENTER, 0, 8000000.0f, SAMPLE_RATE, SAMPLE_RATE, SAMPLE_RATE, true);
+        vfo = sigpath::vfoManager.createVFO(name, ImGui::WaterfallVFO::REF_CENTER, 0, 3000000.0f, SAMPLE_RATE, SAMPLE_RATE, SAMPLE_RATE, true);
 
         demod.init(vfo->output, SAMPLE_RATE, SAMPLE_RATE / 2.0f);
         sync.init(&demod.out, 1.0f, 1e-6, 1.0, 0.05);
         sink.init(&sync.out, handler, this);
 
-        r2c.init(NULL);
-        chromaTaps = dsp::taps::fromArray(CHROMA_FIR_SIZE, CHROMA_FIR);
-        fir.init(NULL, chromaTaps);
-        pll.init(NULL, 0.01, 0.0, dsp::math::hzToRads(4433618.75, SAMPLE_RATE), dsp::math::hzToRads(4433618.75*0.90, SAMPLE_RATE), dsp::math::hzToRads(4433618.75*1.1, SAMPLE_RATE));
+        //r2c.init(NULL);
+        //chromaTaps = dsp::taps::fromArray(CHROMA_FIR_SIZE, CHROMA_FIR);
+        //fir.init(NULL, chromaTaps);
+        //pll.init(NULL, 0.01, 0.0, dsp::math::hzToRads(3579545.4545, SAMPLE_RATE), dsp::math::hzToRads(3579545.4545*0.90, SAMPLE_RATE), dsp::math::hzToRads(3579545.4545*1.1, SAMPLE_RATE));
 
         demod.start();
         sync.start();
@@ -130,24 +130,24 @@ class ATVDecoderModule : public ModuleManager::Instance {
         ATVDecoderModule *_this = (ATVDecoderModule *)ctx;
 
         // Convert line to complex
-        _this->r2c.process(720, data, _this->r2c.out.writeBuf);
+        //_this->r2c.process(720, data, _this->r2c.out.writeBuf);
 
         // Isolate the chroma subcarrier
-        _this->fir.process(720, _this->r2c.out.writeBuf, _this->fir.out.writeBuf);
+        //_this->fir.process(720, _this->r2c.out.writeBuf, _this->fir.out.writeBuf);
 
         // Run chroma carrier through the PLL
-        _this->pll.process(720, _this->fir.out.writeBuf, _this->pll.out.writeBuf, ((_this->ypos%2)==1) ^ _this->evenFrame);
+        //_this->pll.process(720, _this->fir.out.writeBuf, _this->pll.out.writeBuf, ((_this->ypos%2)==1) ^ _this->evenFrame);
 
         // Render line to the image without color
         int lypos = _this->ypos - 1;
-        if (lypos < 0) { lypos = 624; }
-        uint32_t* lastLine = &((uint32_t *)_this->img.buffer)[(lypos < 313) ? (lypos*720*2) : ((((lypos - 313)*2)+1)*720) ];
-        uint32_t* currentLine = &((uint32_t *)_this->img.buffer)[(_this->ypos < 313) ? (_this->ypos*720*2) : ((((_this->ypos - 313)*2)+1)*720) ];
+        if (lypos < 0) { lypos = 524; }
+        uint32_t* lastLine = &((uint32_t *)_this->img.buffer)[(lypos < 263) ? (lypos*720*2) : ((((lypos - 263)*2)+1)*720) ];
+        uint32_t* currentLine = &((uint32_t *)_this->img.buffer)[(_this->ypos < 263) ? (_this->ypos*720*2) : ((((_this->ypos - 263)*2)+1)*720) ];
 
         //uint32_t* currentLine = &((uint32_t *)_this->img.buffer)[_this->ypos*720];
 
         for (int i = 0; i < count; i++) {
-            int imval = std::clamp<float>((data[i] - _this->minLvl) * 255.0 / _this->spanLvl, 0, 255);
+            int imval = std::clamp<float>((-data[i] + _this->minLvl) * 255.0 / _this->spanLvl, 0, 255);
             // uint32_t re = std::clamp<float>((_this->pll.out.writeBuf[i].re - _this->minLvl) * 255.0 / _this->spanLvl, 0, 255);
             // uint32_t im = std::clamp<float>((_this->pll.out.writeBuf[i].im - _this->minLvl) * 255.0 / _this->spanLvl, 0, 255);
             // currentLine[i] = 0xFF000000 | (im << 8) | re;
@@ -156,7 +156,7 @@ class ATVDecoderModule : public ModuleManager::Instance {
     
         // Vertical scan logic
         _this->ypos++;
-        bool rollover = _this->ypos >= 625;
+        bool rollover = _this->ypos >= 525;
         if (rollover) {
             {
                 std::lock_guard<std::mutex> lck(_this->evenFrameMtx);
@@ -168,14 +168,14 @@ class ATVDecoderModule : public ModuleManager::Instance {
 
         // Measure vsync levels
         float sync0 = 0.0f, sync1 = 0.0f;
-        for (int i = 0; i < 306; i++) {
+        for (int i = 0; i < 256; i++) {
             sync0 += data[i];
         }
-        for (int i = (720/2); i < ((720/2)+306); i++) {
+        for (int i = (720/2); i < ((720/2)+256); i++) {
             sync1 += data[i];
         }
-        sync0 *= (1.0f/305.0f);
-        sync1 *= (1.0f/305.0f);
+        sync0 *= (1.0f/255.0f);
+        sync1 *= (1.0f/255.0f);
 
         // Save sync detection to history
         _this->syncHistory >>= 2;

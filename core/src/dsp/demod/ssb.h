@@ -18,15 +18,15 @@ namespace dsp::demod {
 
         SSB() {}
 
-        SSB(stream<complex_t>* in, Mode mode, double bandwidth, double samplerate, double agcAttack, double agcDecay) { init(in, mode, bandwidth, samplerate, agcAttack, agcDecay); }
+        SSB(stream<complex_t>* in, Mode mode, double bandwidth, double samplerate, double agcAttack, double agcDecay, double agcBypass = -1.0) { init(in, mode, bandwidth, samplerate, agcAttack, agcDecay, agcBypass); }
 
-        void init(stream<complex_t>* in, Mode mode, double bandwidth, double samplerate, double agcAttack, double agcDecay) {
+        void init(stream<complex_t>* in, Mode mode, double bandwidth, double samplerate, double agcAttack, double agcDecay, double agcBypass = -1.0) {
             _mode = mode;
             _bandwidth = bandwidth;
             _samplerate = samplerate;
 
             xlator.init(NULL, getTranslation(), _samplerate);
-            agc.init(NULL, 1.0, agcAttack, agcDecay, 10e6, 10.0, INFINITY);
+            agc.init(NULL, 1.0, agcAttack, agcDecay, 10e6, 10.0, INFINITY, agcBypass);
 
             if constexpr (std::is_same_v<T, float>) {
                 agc.out.free();
@@ -72,6 +72,12 @@ namespace dsp::demod {
             assert(base_type::_block_init);
             std::lock_guard<std::recursive_mutex> lck(base_type::ctrlMtx);
             agc.setDecay(decay);
+        }
+
+        void setAGCBypass(double bypass) {
+            assert(base_type::_block_init);
+            std::lock_guard<std::recursive_mutex> lck(base_type::ctrlMtx);
+            agc.setBypass(bypass);
         }
 
         int process(int count, const complex_t* in, T* out) {

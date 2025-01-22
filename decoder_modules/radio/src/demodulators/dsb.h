@@ -27,10 +27,13 @@ namespace demod {
             if (config->conf[name][getName()].contains("agcDecay")) {
                 agcDecay = config->conf[name][getName()]["agcDecay"];
             }
+            if (config->conf[name][getName()].contains("agcBypass")) {
+                agcBypass = config->conf[name][getName()]["agcBypass"];
+            }
             config->release();
 
             // Define structure
-            demod.init(input, dsp::demod::SSB<dsp::stereo_t>::Mode::DSB, bandwidth, getIFSampleRate(), agcAttack / getIFSampleRate(), agcDecay / getIFSampleRate());
+            demod.init(input, dsp::demod::SSB<dsp::stereo_t>::Mode::DSB, bandwidth, getIFSampleRate(), agcAttack / getIFSampleRate(), agcDecay / getIFSampleRate(), agcBypass);
         }
 
         void start() { demod.start(); }
@@ -55,6 +58,14 @@ namespace demod {
                 _config->conf[name][getName()]["agcDecay"] = agcDecay;
                 _config->release(true);
             }
+            ImGui::LeftLabel("AGC Bypass");
+            ImGui::SetNextItemWidth(menuWidth - ImGui::GetCursorPosX());
+            if (ImGui::SliderFloat(("##_radio_dsb_agc_bypass_" + name).c_str(), &agcBypass, -1.0f, 100.0f)) {
+                demod.setAGCBypass(agcBypass);
+                _config->acquire();
+                _config->conf[name][getName()]["agcBypass"] = agcBypass;
+                _config->release(true);
+            }
         }
 
         void setBandwidth(double bandwidth) { demod.setBandwidth(bandwidth); }
@@ -66,7 +77,7 @@ namespace demod {
         // ============= INFO =============
 
         const char* getName() { return "DSB"; }
-        double getIFSampleRate() { return 24000.0; }
+        double getIFSampleRate() { return 40000.0; }
         double getAFSampleRate() { return getIFSampleRate(); }
         double getDefaultBandwidth() { return 4600.0; }
         double getMinBandwidth() { return 1000.0; }
@@ -88,6 +99,7 @@ namespace demod {
 
         float agcAttack = 50.0f;
         float agcDecay = 5.0f;
+        float agcBypass = -1.0f;
 
         std::string name;
     };
